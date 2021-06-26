@@ -1,0 +1,86 @@
+#Note, the data contain x1-3 and y1-3
+#Latent mean Structure with intercepts
+
+kappa =~ 1*sat6_T0 + 1*sat6_T1 + 1*sat6_T2 + 1*sat6_T3 + 1*sat6_T4 + 1*sat6_T5 + 1*sat6_T6 + 1*sat6_T7
+omega =~ 1*per1i6_T0 + 1*per1i6_T1 + 1*per1i6_T2 + 1*per1i6_T3 + 1*per1i6_T4 + 1*per1i6_T5 + 1*per1i6_T6 + 1*per1i6_T7
+
+sat6_T0 ~ mu0*1 #intercepts
+sat6_T1 ~ mu1*1
+sat6_T2 ~ mu2*1
+sat6_T3 ~ mu3*1
+sat6_T4 ~ mu4*1
+sat6_T5 ~ mu5*1
+sat6_T6 ~ mu6*1
+sat6_T7 ~ mu7*1
+per1i6_T0 ~ pi0*1
+per1i6_T1 ~ pi1*1
+per1i6_T2 ~ pi2*1
+per1i6_T3 ~ pi3*1
+per1i6_T4 ~ pi4*1
+per1i6_T5 ~ pi5*1
+per1i6_T6 ~ pi6*1
+per1i6_T7 ~ pi7*1
+
+kappa ~~ kappa #variance
+omega ~~ omega #variance
+kappa ~~ omega #covariance
+
+#laten vars for AR and cross-lagged effects
+sat0 =~ 1*sat6_T0 #each factor loading set to 1
+sat1 =~ 1*sat6_T1
+sat2 =~ 1*sat6_T2
+sat3 =~ 1*sat6_T3
+sat4 =~ 1*sat6_T4
+sat5 =~ 1*sat6_T5
+sat6 =~ 1*sat6_T6
+sat7 =~ 1*sat6_T7
+lon0 =~ 1*per1i6_T0
+lon1 =~ 1*per1i6_T1
+lon2 =~ 1*per1i6_T2
+lon3 =~ 1*per1i6_T3
+lon4 =~ 1*per1i6_T4
+lon5 =~ 1*per1i6_T5
+lon6 =~ 1*per1i6_T6
+lon7 =~ 1*per1i6_T7
+
+#constrain autoregression and cross lagged effects to be the same across both lags.
+sat7 ~ alpha*sat6 + beta*lon6
+sat6 ~ alpha*sat5 + beta*lon5
+sat5 ~ alpha*sat4 + beta*lon4
+sat4 ~ alpha*sat3 + beta*lon3
+sat3 ~ alpha*sat2 + beta*lon2
+sat2 ~ alpha*sat1 + beta*lon1
+sat1 ~ alpha*sat0 + beta*lon0
+lon7 ~ delta*lon6 + gamma*sat6
+lon6 ~ delta*lon5 + gamma*sat5
+lon5 ~ delta*lon4 + gamma*sat4
+lon4 ~ delta*lon3 + gamma*sat3
+lon3 ~ delta*lon2 + gamma*sat2
+lon2 ~ delta*lon1 + gamma*sat1
+lon1 ~ delta*lon0 + gamma*sat0
+
+sat0 ~~ sat0 #variance
+sat1 ~~ u1*sat1
+sat2 ~~ u2*sat2
+sat3 ~~ u3*sat3
+sat4 ~~ u4*sat4
+sat5 ~~ u5*sat5
+sat6 ~~ u6*sat6
+sat7 ~~ u7*sat7
+lon0 ~~ lon0 #variance
+lon1 ~~ v1*lon1
+lon2 ~~ v2*lon2
+lon3 ~~ v3*lon3
+lon4 ~~ v4*lon4
+lon5 ~~ v5*lon5
+lon6 ~~ v6*lon6
+lon7 ~~ v7*lon7
+
+sat0 ~~ lon0 #sat0 and lon0 covariance
+sat1 ~~ lon1 #sat1 and lon1 covariance
+sat2 ~~ lon2 #sat2 and lon2 covariance
+sat3 ~~ lon3 #sat3 and lon3 covariance
+sat4 ~~ lon4 #sat4 and lon4 covariance
+sat5 ~~ lon5 #sat5 and lon5 covariance
+sat6 ~~ lon6 #sat6 and lon6 covariance
+sat7 ~~ lon7 #sat7 and lon7 covariance
