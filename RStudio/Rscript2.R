@@ -1,7 +1,8 @@
-#--- STARTUP -------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
+################################################################################
+###  STARTUP                                                                 
+################################################################################
 
-# PREREQUISITES
-setwd("C:/Users/schneluc/OneDrive - adidas/5. Master Program/5. Masterarbeit/implementation/RStudio")
+# Prerequisites
 library(ctsemOMX)
 library(OpenMx)
 require(lavaan)
@@ -9,38 +10,24 @@ require(tidyverse)
 library(hash)
 library(plyr)
 
-# LOAD DATA
-data.pairfam = read.csv(file = '../../data/samples/data8.csv')
+# Load Data
+data.pairfam = read.csv(file = 'C:/Users/schneluc/OneDrive - adidas/5. Master Program/5. Masterarbeit/data/samples/data8.csv')
 
 
 
 
 
-#--- MANUAL IMPLEMENTATION OF CONTINUOUS TIME MODEL --------------------------------------------------------------------------------------------------------------------#
+################################################################################
+###  MANUAL IMPLEMENTATION OF CONTINUOUS TIME MODEL                          
+###      (Copied from Voelkle et al. 2012: https://doi.org/10.1037/a0027543)  
+################################################################################
 
-# Algebra function 1
-EXP_Function <- function(number, value) {
-  eval(substitute(mxAlgebra(EVEC %*% (exp(replace2 %x% EVA) - tempa)%*% solve(EVEC), 
-                            name = paste("EXPd", replace1, sep="")),
-                  list(replace1 = number, replace2 = value)))
-}
-
-# Algebra function 2
-int_Function <- function(number2, value2) {
-  eval(substitute(mxAlgebra(solve(DRIFT)%*%((EVEC %*% (exp(replace4 %x% EVA) - tempa)%*% solve(EVEC))-II)%*%t(CINT), 
-                            name = paste("intd", replace3, sep="")),
-                  list(replace3 = number2, replace4 = value2)))
-}
-
-# Algebra function 3
-Qd_Function <- function(number3, value3) {
-  eval(substitute(mxAlgebra(((solve(DRIFTHATCH)%*%((EVECH%*%(exp(replace6%x%EVAH)-tempb)%*%solve(EVECH))-(II%x%II))%*%rvectorize(Q))) ,
-                            name = paste("Qd", replace5, sep="")),
-                  list(replace5 = number3, replace6 = value3)))
-}
-
-# Voelkle Model from 2012
-voelkleModel <- function(n.manifest, n.latent, PHI1, latentM1, manifestM, LAMBDA, THETA, DRIFT, CINT, Q, delta_t, Tpoints, data, measurements) {
+# MAIN FUNCTION TO BUILD A MODEL OBJECT
+#   >> Input: Model specifics (e.g. number of manifests) and starting values
+#   >> Output: mxModel object that can be fit using mxRun 
+voelkleModel <- function(n.manifest, n.latent, PHI1, latentM1, manifestM, 
+                         LAMBDA, THETA, DRIFT, CINT, Q, delta_t, Tpoints, data, 
+                         measurements) {
   
   #######################################
   #######################################
@@ -285,87 +272,122 @@ voelkleModel <- function(n.manifest, n.latent, PHI1, latentM1, manifestM, LAMBDA
   return(model2)
 }
 
+# Algebra function 1 (used in the function 'voelkleModel')
+EXP_Function <- function(number, value) {
+  eval(substitute(mxAlgebra(EVEC %*% (exp(replace2 %x% EVA) - tempa)%*% solve(EVEC), 
+                            name = paste("EXPd", replace1, sep="")),
+                  list(replace1 = number, replace2 = value)))
+}
+
+# Algebra function 2 (used in the function 'voelkleModel')
+int_Function <- function(number2, value2) {
+  eval(substitute(mxAlgebra(solve(DRIFT)%*%((EVEC %*% (exp(replace4 %x% EVA) - tempa)%*% solve(EVEC))-II)%*%t(CINT), 
+                            name = paste("intd", replace3, sep="")),
+                  list(replace3 = number2, replace4 = value2)))
+}
+
+# Algebra function 3 (used in the function 'voelkleModel')
+Qd_Function <- function(number3, value3) {
+  eval(substitute(mxAlgebra(((solve(DRIFTHATCH)%*%((EVECH%*%(exp(replace6%x%EVAH)-tempb)%*%solve(EVECH))-(II%x%II))%*%rvectorize(Q))) ,
+                            name = paste("Qd", replace5, sep="")),
+                  list(replace5 = number3, replace6 = value3)))
+}
 
 
 
 
-#--- MODEL EVALUATION PIPELINE --------------------------------------------------------------------------------------------------------------------#
 
-prepData <- function(df_long, manifestNames, timeVar="wave", minTpoints=2, exclWaves=NULL, keepOnlyWaves=NULL, exclNANs=FALSE, subj_types=c('anchor', 'partner'), genders=c(1,2), N_samples=NULL) {
+################################################################################
+###  MODEL EVALUATION PIPELINE
+################################################################################
+
+
+# FUNCTION TO DRAW AND STANDARDIZE A SPECIFIC SUBSET PRIOR TO THE MODEL FIT
+#   >> Input: dataset in the long data format and specifications on the required subset
+#   >> Output: dataFrame object in wide data format ready for model fit
+prepData <- function(dat.long, manifestNames, minTpoints=2, exclWaves=NULL, keepOnlyWaves=NULL, exclNANs=FALSE, subj_types=c('anchor', 'partner'), genders=c(1,2), N_samples=NULL) {
   
   # Keep only relevant subjects (parameter: subj_type)
-  df_long = df_long[df_long$subj_type %in% subj_types,]
-  df_long = df_long[df_long$sex %in% genders,]
+  dat.long = dat.long[dat.long$subj_type %in% subj_types,]
+  dat.long = dat.long[dat.long$sex %in% genders,]
   
   # Exclude/Keep specifed waves from the dataset (parameters: exclWaves, keepWaves)
   exclWaves = if(is.null(keepOnlyWaves)) exclWaves else setdiff(1:11, keepOnlyWaves)
   for(exclWave in exclWaves) {
-    df_long = df_long[df_long$wave != exclWave,]
+    dat.long = dat.long[dat.long$wave != exclWave,]
   }
   
   # Remove time points with only NANs for at least one variable (anchors and partners treated separately)
-  aggr = aggregate(df_long[,manifestNames], by=list(wave=df_long$wave, subj=df_long$subj_type), FUN=mean, na.rm=TRUE) # Mean variable values for each manifest variable per wave and subject (0=anchor; 1=partner) combination
+  aggr = aggregate(dat.long[,manifestNames], by=list(wave=dat.long$wave, subj=dat.long$subj_type), FUN=mean, na.rm=TRUE) # Mean variable values for each manifest variable per wave and subject (0=anchor; 1=partner) combination
   emptyTpoints = aggr[rowSums(is.na(aggr[,manifestNames]))>0, c('wave')] # Waves without any data for at least one of the selected subj_type
   for(emptyTpoint in emptyTpoints) {
-    df_long = df_long[df_long$wave!=emptyTpoint,]
+    dat.long = dat.long[dat.long$wave!=emptyTpoint,]
   }
   
   # Remove rows with NANs, if specified (parameter: 'exclNANs')
   if(exclNANs) {
-    df_long = df_long[complete.cases(df_long[,manifestNames]), ]
+    dat.long = dat.long[complete.cases(dat.long[,manifestNames]), ]
   }
   
   # Keep only subjects with data for at least minTpoints time points (parameter: minTpoints)
-  frequencies = data.frame(table(df_long['id']))
-  df_long = merge(x=df_long, y=frequencies, by.x="id", by.y='Var1', all.x = TRUE)
-  df_long = df_long[df_long[,'Freq']>=minTpoints,]
+  frequencies = data.frame(table(dat.long['id']))
+  dat.long = merge(x=dat.long, y=frequencies, by.x="id", by.y='Var1', all.x = TRUE)
+  dat.long = dat.long[dat.long[,'Freq']>=minTpoints,]
   
   # Reduce sample size if required (parameter: 'sample_size')
-  ids = unique(df_long$id)
+  ids = unique(dat.long$id)
   N_samples = if(is.null(N_samples) || N_samples>length(ids)) length(ids) else N_samples
   ids = ids[sample(N_samples)] # Generate random sample of IDs
-  df_long = merge(x=df_long, y=ids, by.x='id', by.y=1, all.y=TRUE)
+  dat.long = merge(x=dat.long, y=ids, by.x='id', by.y=1, all.y=TRUE)
   
   # Standardize variables
-  df_long[, manifestNames] = scale(df_long[, manifestNames])
+  dat.long[, manifestNames] = scale(dat.long[, manifestNames])
   
   # Transform & Intervalise long to wide data format
-  df_wide = reshape(df_long[,c('id', 'wave', manifestNames)], idvar="id", timevar="wave", sep=paste0("_T"), direction="wide") # Reshape long to wide format
-  rownames(df_wide) = df_wide$id # Set ID column as index
-  df_wide$id = NULL # Drop ID column
-  df_wide = df_wide[, order(as.integer(sub(".*_T", "", colnames(df_wide))))] # Reorder time points
-  colnames(df_wide) = paste0(sub("\\_.*", "", colnames(df_wide)), '_T', rep(0:ncol(df_wide), each=length(manifestNames), len=ncol(df_wide))) # Rename columns
-  delta_t = diff(sort(unique(df_long[,'wave'])))
-  df_intv = cbind(df_wide, matrix(delta_t, nrow=1, dimnames=list(c(),paste0('dT',(1:length(delta_t)))))) # Add time interval columns
+  dat.wide = reshape(dat.long[,c('id', 'wave', manifestNames)], idvar="id", timevar="wave", sep=paste0("_T"), direction="wide") # Reshape long to wide format
+  rownames(dat.wide) = dat.wide$id # Set ID column as index
+  dat.wide$id = NULL # Drop ID column
+  dat.wide = dat.wide[, order(as.integer(sub(".*_T", "", colnames(dat.wide))))] # Reorder time points
+  colnames(dat.wide) = paste0(sub("\\_.*", "", colnames(dat.wide)), '_T', rep(0:ncol(dat.wide), each=length(manifestNames), len=ncol(dat.wide))) # Rename columns
+  delta_t = diff(sort(unique(dat.long[,'wave'])))
+  dat.intv = cbind(dat.wide, matrix(delta_t, nrow=1, dimnames=list(c(),paste0('dT',(1:length(delta_t)))))) # Add time interval columns
   
   # Print dataset characteristics
-  cat('Number of subjects:           ', nrow(df_intv), '\n')
-  cat('Average number of time points:', round(nrow(df_long)/nrow(df_intv),2), '\n')
+  cat('Number of subjects:           ', nrow(dat.intv), '\n')
+  cat('Average number of time points:', round(nrow(dat.long)/nrow(dat.intv),2), '\n')
   cat('Mean interval:                ', round(mean(delta_t),2), '\n')
   cat('Variance of time intervals:   ', round(var(delta_t),2), '\n')
-  cat('Percentage of NANs:           ', round(sum(is.na(df_long[,manifestNames]))/(nrow(df_long)*length(manifestNames))*100,1), '%\n')
-  return(df_intv)
+  cat('Percentage of NANs:           ', round(sum(is.na(dat.long[,manifestNames]))/(nrow(dat.long)*length(manifestNames))*100,1), '%\n')
+  
+  return(dat.intv)
 }
 
-build = function(data, manifestNames, Tpoints, type, hyperparams) {
+# FUNCTION TO GENERATE MODEL OBJECTS FOR ALL TYPES OF MODELS
+#   >> Input: type of model (e.g. discrete), hyperparameters and specifics on the dataset
+#   >> Output: model object (for continuous time models, this is an mxModel object, for discrete time models a simple string)
+build = function(dat, manifestNames, mod_type, hyperparams) {
   
-  if(type=='simple') {
+  Tpoints = ceiling(ncol(dat)/(length(manifestNames)+1))
+  
+  # Case 1: Auto-regressive model - Generate a string with the linear constraints
+  if(mod_type=='autoregressive') {
     mod = ''
-    for(var in manifestNames) {
-      for(T in 1:(Tpoints-1)) {
+    for(var in manifestNames) { # for each manifest variable
+      for(T in 1:(Tpoints-1)) { # for each measurement occasion
         target = paste(var, T, sep='_T')
         inputs = paste0(var, '_T', T-1)
-        if(sum(complete.cases(data[,c(target, inputs)])) > 0) { # Only add equations if at least 1 line with data for all involved variables
-          regr = paste0(target,' ~ ', paste0(paste0('auto_', var), ' * ', inputs))
-          intcp = paste0(target,' ~ intcp_',var,'*1')
-          mod = paste(mod, regr, intcp, sep=' \n ' )
+        if(sum(complete.cases(dat[,c(target, inputs)])) > 0) { # Only add constraints if at least one subject with dat for all involved variables
+          regr = paste0(target,' ~ ', paste0(paste0('auto_', var), ' * ', inputs))  # autoregression constraints
+          intcp = paste0(target,' ~ intcp_',var,'*1')                               # intercept constraints
+          mod = paste(mod, regr, intcp, sep=' \n ' )                              
         }
       }
     }
     return(mod)
   }
   
-  else if(type=='lm' && Tpoints==2) {
+  # Case 2: Linear model - Generate a string with one linear regression for each variable (only possible if not more than two time points)
+  else if(mod_type=='lm' && Tpoints==2) {
     mod = c()
     for(var in manifestNames) {
       mod = append(mod, as.formula(paste0(paste0(var,'_T1'), ' ~ ', paste(lapply(manifestNames, paste0, "_T0"), collapse=' + '))))
@@ -373,26 +395,31 @@ build = function(data, manifestNames, Tpoints, type, hyperparams) {
     return(mod)
   }
   
-  else if(type=='discrete') {
+  # Case 3: Discrete time model - Generate a string with the linear constraints
+  else if(mod_type=='discrete') {
     mod = ''
+    
+    # First, add autoregression and intercept constraints (similar way as for the auto-regressive model)
     for(var in manifestNames) {
       for(T in 1:(Tpoints-1)) {
         target = paste(var, T, sep='_T')
         inputs = paste0(manifestNames, '_T', T-1)
-        if(sum(complete.cases(data[,c(target, inputs)])) > 0) { # Only add equations if at least 1 line with data for all involved variables
-          regr = paste0(target,' ~ ',paste(paste0(var,'_',manifestNames, '*' ,inputs), collapse=' + '))
-          intcp = paste0(target,' ~ intcp_',var,'*1')
+        if(sum(complete.cases(dat[,c(target, inputs)])) > 0) { # Only add constraints if at least one subject with data for all involved variables
+          regr = paste0(target,' ~ ',paste(paste0(var,'_',manifestNames, '*' ,inputs), collapse=' + '))   # autoregression constraints
+          intcp = paste0(target,' ~ intcp_',var,'*1')                                                     # intercept constraints
           mod = paste(mod, regr, intcp, sep=' \n ' )
         }
       }
     }
+    
+    # Second, add variance and covariances
     for(i in 1:length(manifestNames)) {
       for(j in 1:length(manifestNames)) {
         if(j>i) {
           for(T in 1:(Tpoints-1)) {
             var_i = paste0(manifestNames[i],'_T',T)
             var_j = paste0(manifestNames[j],'_T',T)
-            if(grepl(paste(var_i,'~ '), mod, fixed=TRUE) && grepl(paste(var_j,'~ '), mod, fixed=TRUE)) { # Only add correlations for variables that have been defined as target earlier
+            if(grepl(paste(var_i,'~ '), mod, fixed=TRUE) && grepl(paste(var_j,'~ '), mod, fixed=TRUE)) {
               mod = paste(mod, paste(paste(var_i,'~~',var_j), collapse= ' \n '), sep=' \n ')
             }
           }
@@ -402,127 +429,120 @@ build = function(data, manifestNames, Tpoints, type, hyperparams) {
     return(mod)
   }
   
-  else if(type=='stanct' || type=='omx') {
-    hyperparams$cint =          if (is.null(hyperparams$cint))             matrix(paste0("cint_",manifestNames),ncol=1) 
-                                else if (hyperparams$cint=='free')         matrix(paste0("cint_",manifestNames),ncol=1)
-                                else if (hyperparams$cint=='zero')         'auto'
-                                else                                       'auto'
-    
-    hyperparams$manifestmeans = if(is.null(hyperparams$manifestmeans))     matrix(0, nrow=length(manifestNames), ncol=1)
-                                else if(hyperparams$manifestmeans=='free') 'auto'  
-                                else if(hyperparams$manifestmeans=='zero') matrix(0, nrow=length(manifestNames), ncol=1) 
-                                else                                       matrix(0, nrow=length(manifestNames), ncol=1)
-    if(is.null(hyperparams$traitvar))  { hyperparams$traitvar=NULL }
-    
-    mod = ctModel(type=type, 
+  # Case 4: Continuous time model from the ctsem package - Use the native function and return a ctModel object that can be trained using native function ctFit
+  else if(mod_type=='ctsem') {
+    mod = ctModel(type='omx', 
                   Tpoints=Tpoints,
                   n.manifest=length(manifestNames),
                   manifestNames=manifestNames, 
-                  MANIFESTMEANS = hyperparams$manifestmeans,
+                  MANIFESTMEANS = matrix(0, nrow=length(manifestNames), ncol=1),
                   MANIFESTVAR = matrix(0, nrow=length(manifestNames), ncol=length(manifestNames)),
-                  CINT = hyperparams$cint,
-                  TRAITVAR = hyperparams$traitvar, 
+                  CINT = matrix(paste0("cint_",manifestNames),ncol=1),
+                  TRAITVAR = NULL, 
                   LAMBDA=diag(length(manifestNames)))
-    
     return(mod)
   }
   
-  else { # The definition of the Voelkle model requires a data object. Therefore it is part of the 'fit' step
-    return(NULL)
-  }
-}
-
-fit = function(mod, data, manifestNames, type, hyperparams=list()) {
-  
-  m = length(manifestNames)
-  
-  if (type=='naive') { 
-    estimates = matrix(cbind(diag(m), 0), nrow=m, dimnames=list(manifestNames, c(manifestNames, 'intcp')))
-    return(estimates)
-  }
-  
-  if (type=='simple') {
-    if (is.null(hyperparams$missing)) { hyperparams$missing = 'listwise' }
-    fit = sem(mod, data=data, missing=hyperparams$missing)
-    coefs = coef(fit)[!duplicated(names(coef(fit)))]
-    estimates = matrix(cbind(diag(coefs[(1:m)*2-1]), coefs[(1:m)*2]), nrow=m, dimnames=list(manifestNames, c(manifestNames, 'intcp')))
-    return(estimates)
-  }
-  
-  if (type=='discrete') {
-    if (is.null(hyperparams$missing)) { hyperparams$missing = 'listwise' }
-    fit = sem(mod, data=data, missing=hyperparams$missing, fixed.x=FALSE)
-    coefs = coef(fit)[!duplicated(names(coef(fit)))]
-    estimates = matrix(coefs[1:(m*(m+1))], nrow=m, byrow=TRUE, dimnames=list(manifestNames, c(manifestNames, 'intcp')))
-    return(estimates)
-  }
-  
-  else if (type=='lm') {
-    estimates = matrix(nrow=0, ncol=m+1, dimnames=list(c(), c(manifestNames, 'intcp')))
-    for(i in 1:m) {
-      fit = lm(mod[[i]], data=data)
-      estimates = rbind(estimates, matrix(c(fit$coefficients[c(2:(m+1),1)]), nrow=1, dimnames=list(manifestNames[i], c())))
-    }
-    return(estimates)
-  }
-  
-  else if (type=='omx') {
-    retryattempts = if (is.null(hyperparams$retryattempts)) 10 else hyperparams$retryattempts
-    if(is.null(hyperparams$carefulFit)) { hyperparams$carefulFit=TRUE }
-    set.seed(42)
-    fit = ctFit(ctmodelobj=mod, dat=data, dataform="wide", carefulFit=hyperparams$carefulFit, retryattempts=retryattempts)
-    res = summary(fit)
-    estimates = matrix(cbind(res$DRIFT, res$CINT, res$MANIFESTMEANS), nrow=m, dimnames=list(manifestNames, c(manifestNames, 'intcp', 'mmeans')))
-    return(estimates)
-  }
-  
-  else if (type=='stanct') {
-    set.seed(42)
-    fit = ctStanFit(datalong=data, ctstanmodel=mod, cores=6, verbose=1)
-  }
-  
-  else if (type=='voelkle') {
+  # Case 5: Continuous time model using the manual implementation: 
+  else if(mod_type=='voelkle') {
+    
+    # Obtain starting values from discrete a discrete model
+    mod_disc = build(dat, manifestNames, mod_type='discrete')
+    startVals = fit(mod_disc, dat, manifestNames, mod_type='discrete', hyperparams=list(missing='fiml'))
+    
+    # Transform starting values into discrete parameters
     m = length(manifestNames)
-    l = m #  number of latentvariables
-    Tpoints = (ncol(data)+1)/(length(manifestNames)+1)
-    intvls = as.vector(as.matrix(data[1,(m*Tpoints+1):ncol(data)]))
+    intvls = as.vector(as.matrix(dat[1,(m*Tpoints+1):ncol(dat)]))
     mean_dt = mean(intvls)
-    retryattempts = if (is.null(hyperparams$retryattempts)) 10 else hyperparams$retryattempts
-    
-    # Obtain starting values for parameters from discrete model
-    mod_disc = build(data, manifestNames, Tpoints, type='discrete')
-    startVals = fit(mod_disc, data, manifestNames, type='discrete', hyperparams=list(missing='fiml'))
-    
     A_disc = startVals[,1:m]
     b_disc = startVals[,m+1]
-    predictions_disc = pred(startVals, data, type='discrete')
-    errCov_disc = rmse(predictions_disc, data, manifestNames, getErrCov=TRUE)
+    predictions_disc = pred(startVals, dat, mod_type='discrete')
+    errCov_disc = var(residuals(predictions_disc, dat, manifestNames))
     A_cont = logm(A_disc)/ (if(hyperparams$approx == 'unitIntv') 1 else mean_dt)
-    b_cont = solve(A_disc-diag(l)) %*% A_cont %*% b_disc
-    A_hash = A_cont %x% diag(l) + diag(l) %x% A_cont
-    Q_cont = matrix(solve(solve(A_hash) %*% (expm(A_hash*mean_dt) - diag(l*l))) %*% c(errCov_disc), nrow=l, ncol=l)
+    b_cont = solve(A_disc-diag(m)) %*% A_cont %*% b_disc
+    A_hash = A_cont %x% diag(m) + diag(m) %x% A_cont
+    Q_cont = matrix(solve(solve(A_hash) %*% (expm(A_hash*mean_dt) - diag(m*m))) %*% c(errCov_disc), nrow=m, ncol=m)
     
+    # Ensure that continuous time parameter don't have a starting value of exactly 0 or exactly 1, because then they would no longer be freely estimated
     A_cont[A_cont == 0] = 0.01
     b_cont[b_cont == 0] = 0.01
     A_cont[A_cont == 1] = 0.99
     b_cont[b_cont == 1] = 0.99
     
-    mod = voelkleModel(n.manifest   = m,                                                                       # total number of indicators for ALL factors. 
-                       n.latent     = l,                                                                       # number of latent variables
-                       PHI1         = cov(data[,paste0(manifestNames, '_T0')], use = "pairwise.complete.obs"), # var/cov matrix of latent variables at first time point
-                       latentM1     = matrix(colMeans(data[,paste0(manifestNames, '_T0')], na.rm=TRUE), nrow=l, ncol=1),   # means of latent variables at first time point
-                       manifestM    = matrix(0, nrow=m, ncol=1, byrow=TRUE),                                   # intercepts of manifest variables (usually fixed to zero)
-                       LAMBDA       = matrix(diag(1, m), nrow=m, ncol=l,byrow=TRUE),                           # factor loading matrix
-                       THETA        = matrix(0,nrow=m, ncol=m),                                                # var/cov matrix of measurement error
-                       DRIFT        = A_cont,                                                         # crude approximation of drift matrix
-                       CINT         = matrix(b_cont, ncol=l, nrow=1, byrow=TRUE),                     # continuous time intercepts
-                       Q            = round(Q_cont,4),                                                         # diffusion matrix	
-                       delta_t      = intvls,                                                                  # vector of (possibly different) time intervals
-                       data         = data[,(1:(m*Tpoints))],
+    # Build the model object using the function that was copied from Voelkle et al. 2012
+    mod = voelkleModel(n.manifest   = m,                                                                                   # total number of indicators for ALL factors. 
+                       n.latent     = m,                                                                                   # number of latent variables
+                       PHI1         = cov(dat[,paste0(manifestNames, '_T0')], use = "pairwise.complete.obs"),             # var/cov matrix of latent variables at first time point
+                       latentM1     = matrix(colMeans(dat[,paste0(manifestNames, '_T0')], na.rm=TRUE), nrow=m, ncol=1),   # means of latent variables at first time point
+                       manifestM    = matrix(0, nrow=m, ncol=1, byrow=TRUE),                                               # intercepts of manifest variables (usually fixed to zero)
+                       LAMBDA       = matrix(diag(1, m), nrow=m, ncol=m,byrow=TRUE),                                       # factor loading matrix
+                       THETA        = matrix(0,nrow=m, ncol=m),                                                            # var/cov matrix of measurement error
+                       DRIFT        = A_cont,                                                                              # crude approximation of drift matrix
+                       CINT         = matrix(b_cont, ncol=m, nrow=1, byrow=TRUE),                                          # continuous time intercepts
+                       Q            = round(Q_cont,4),                                                                     # diffusion matrix	
+                       delta_t      = intvls,                                                                              # vector of (possibly different) time intervals
+                       data         = dat[,(1:(m*Tpoints))],
                        Tpoints      = Tpoints, 
                        measurements = 1:(Tpoints-1)) 
-    
-    # Fit the model 
+  }
+}
+
+# FUNCTION TO FIT THE GENERATED MODEL ON THE DATASET
+#   >> Input: model and type of model (e.g. discrete), hyperparameters and dataset
+#   >> Output: estimates in matrix form (one row for each variable as a target; one column for each variable as predictor + 1 row for the intercept)
+fit = function(mod, dat, manifestNames, mod_type, hyperparams=list()) {
+  
+  m = length(manifestNames)
+  
+  # Case 1: Naive model - Predicts always auto-effects of 1 and cross-lagged effect and intercepts of 0
+  if (mod_type=='naive') { 
+    estimates = matrix(cbind(diag(m), 0), nrow=m, dimnames=list(manifestNames, c(manifestNames, 'intcp')))
+    return(estimates)
+  }
+  
+  # Case 2: Autoregressive model - Fit model specification using the 'sem' function from lavaan package
+  if (mod_type=='autoregressive') {
+    if (is.null(hyperparams$missing)) { hyperparams$missing = 'listwise' }
+    fit = sem(mod, dat=dat, missing=hyperparams$missing)
+    coefs = coef(fit)[!duplicated(names(coef(fit)))]
+    estimates = matrix(cbind(diag(coefs[(1:m)*2-1]), coefs[(1:m)*2]), nrow=m, dimnames=list(manifestNames, c(manifestNames, 'intcp')))
+    return(estimates)
+  }
+  
+  # Case 3: Discrete Time Model - Fit model specification using the 'sem' function from lavaan package
+  if (mod_type=='discrete') {
+    if (is.null(hyperparams$missing)) { hyperparams$missing = 'listwise' }
+    fit = sem(mod, dat=dat, missing=hyperparams$missing, fixed.x=FALSE)
+    coefs = coef(fit)[!duplicated(names(coef(fit)))]
+    estimates = matrix(coefs[1:(m*(m+1))], nrow=m, byrow=TRUE, dimnames=list(manifestNames, c(manifestNames, 'intcp')))
+    return(estimates)
+  }
+  
+  # Case 4: Linear Model - Fit model specification using the native 'lm' function
+  else if (mod_type=='lm') {
+    estimates = matrix(nrow=0, ncol=m+1, dimnames=list(c(), c(manifestNames, 'intcp')))
+    for(i in 1:m) {
+      fit = lm(mod[[i]], data=dat)
+      estimates = rbind(estimates, matrix(c(fit$coefficients[c(2:(m+1),1)]), nrow=1, dimnames=list(manifestNames[i], c())))
+    }
+    return(estimates)
+  }
+  
+  # Case 5: Continuous time model from the ctsem package - fit ctModel object using the ctFit function from the package
+  else if (mod_type=='ctsem') {
+    retryattempts = if (is.null(hyperparams$retryattempts)) 10 else hyperparams$retryattempts
+    if(is.null(hyperparams$carefulFit)) { hyperparams$carefulFit=TRUE }
+    set.seed(42)
+    fit = ctFit(ctmodelobj=mod, dat=dat, dataform="wide", carefulFit=hyperparams$carefulFit, retryattempts=retryattempts)
+    res = summary(fit)
+    estimates = matrix(cbind(res$DRIFT, res$CINT, res$MANIFESTMEANS), nrow=m, dimnames=list(manifestNames, c(manifestNames, 'intcp', 'mmeans')))
+    return(estimates)
+  }
+  
+  # Case 6: Continuous time model using the manual implementation - fit the mxModel object using the OpenMx function mxTryHard
+  else if (mod_type=='voelkle') {
+    mod = build(dat, manifestNames, mod_type, hyperparams) # Model is built as part of the fit step, because the building step already requires stating values
+    retryattempts = if (is.null(hyperparams$retryattempts)) 10 else hyperparams$retryattempts
     fit_voelkle = mxTryHard(mod, extraTries = retryattempts, scale=0.1)
     summary = summary(fit_voelkle)$parameters[,c('name', 'matrix', 'Estimate')]
     A_cont = matrix(summary[summary[,'matrix']=='DRIFT', 'Estimate'], ncol=m)
@@ -533,28 +553,36 @@ fit = function(mod, data, manifestNames, type, hyperparams=list()) {
   }
 }
 
-contToDisc <- function(A_cont=NULL, b_cont=NULL, b_disc=NULL, manifestNames=NULL, estimates=NULL, interval=1) {
+# FUNCTION TO CONVERT CONTINUOUS TIME ESTIMATES INTO DISCRETE TIME ESTIMATES
+#   >> Input: Matrix with continuous time estimates (A and b) and manifestNames as row and column headers; interval to be used for the conversion
+#   >> Output: Matrix in the same format with discrete time estimates
+contToDisc <- function(estimates, interval) {
   
   manifestNames= if(is.null(manifestNames)) rownames(estimates) else manifestNames
   m = length(manifestNames)
-  A_cont = if(is.null(A_cont)) estimates[,(1:m)] else A_cont
-  b_cont = if(is.null(b_cont)) estimates[,m+1] else b_cont
-  b_disc = if(ncol(estimates)>m+1) estimates[,m+2] else if(!is.null(b_disc)) b_disc else numeric(m)
+  
+  A_cont = estimates[,(1:m)]
+  b_cont = estimates[,m+1]
   
   A_disc = expm(A_cont*interval)
-  b_disc = solve(A_cont) %*% (A_disc-diag(1,m)) %*% b_cont + b_disc
+  b_disc = solve(A_cont) %*% (A_disc-diag(1,m)) %*% b_cont
   estimates = matrix(cbind(A_disc, b_disc), nrow=m, dimnames=list(manifestNames, c(manifestNames, 'intcp')))
   
   return(estimates)
 }
 
-pred = function(estimates, data, type) {
+# FUNCTION TO COMPUTE PREDICTIONS ON A GIVEN DATASET
+#   >> Input: parameter estimates, dataset and model type (to choose between continuous and discrete time)
+#   >> Output: Matrix in the same format with discrete time estimates
+pred = function(estimates, data, mod_type) {
+  
   manifestNames = rownames(estimates)
   Tpoints = ceiling(ncol(data)/(length(manifestNames)+1))
   predictions = data.frame(matrix(nrow=nrow(data), ncol=0))
-  # Predictions dependent on time interval
-  if(type=='stanct' || type=='omx' || type=='voelkle') {
-    # Derive dicrete drift matrixes for all possible time intervals
+  
+  # Predictions dependent on time interval (for continuus time models)
+  if(mod_type=='ctsem' || mod_type=='voelkle') {
+    # Derive discrete drift matrixes for all possible time intervals
     intervals = unique(as.vector(as.matrix(data[,(ncol(data)-Tpoints+2):ncol(data)])))
     estimates_disc = matrix(ncol=length(manifestNames)+1+1, nrow=0)
     for(interval in intervals) {
@@ -576,7 +604,7 @@ pred = function(estimates, data, type) {
     }
   }
   
-  # Predictions independent of time interval
+  # Predictions independent of time interval (for discrete time models)
   else {
     for (T in 1:(Tpoints-1)) {
       for (var in manifestNames) {
@@ -590,7 +618,10 @@ pred = function(estimates, data, type) {
   return(predictions)
 }
 
-rmse = function(predictions, data, manifestNames, getErrCov=FALSE) {
+# FUNCTION TO COMPUTE THE RESIDUALS BETWEEN PREDICTIONS AND TRUE VALUES
+#   >> Input: Predictions, true data points and the names of the variables to access the right columns
+#   >> Output: Matrix with all one residual column for each variable
+residuals = function(predictions, data, manifestNames) {
   
   residuals_all = matrix(ncol=0, nrow=nrow(data))
   for (var in manifestNames) {
@@ -605,14 +636,21 @@ rmse = function(predictions, data, manifestNames, getErrCov=FALSE) {
     residuals_all = cbind(residuals_all, residuals_var)
   }
   
-  if(getErrCov) {
-    return(var(residuals_all))
-  }
-  else {
-    return(sqrt(colMeans(residuals_all^2)))
-  }
+  return(residuals_all)
 }
 
+# FUNCTION TO COMPUTE RMSE BETWEEN PREDICTIONS AND TRUE VALUES
+#   >> Input: Predictions, true data points and the names of the variables to access the right columns
+#   >> Output: Vector with one RMSE for each variable
+rmse = function(predictions, data, manifestNames) {
+  res = residuals(predictions, data, manifestNames)
+  rmse = sqrt(colMeans(res^2))
+  return(rmse)
+}
+
+# FUNCTION TO EVALUATE THE PERFORMANCE OF ONE SPECIFIC MODEL ON ONE PARTICULAR DATASET
+#   >> Input: Model specifics, training data and test data
+#   >> Output: Matrix with details about the results of the model (incl. parameter estimates, computation time, training accuracy and test accuracy)
 evaluate = function(mod, dat.train, dat.val, manifestNames, mod_type, hyperparams=list()) {
   
   # Fit the model
@@ -632,7 +670,7 @@ evaluate = function(mod, dat.train, dat.val, manifestNames, mod_type, hyperparam
   
   # Wrap results for continuous time models
   res = data.frame()
-  if (mod_type=='omx' || mod_type=='stanct' || mod_type=='voelkle') {
+  if (mod_type=='ctsem' || mod_type=='stanct' || mod_type=='voelkle') {
     res = rbind.fill(res, data.frame(paramType='cont', target=rownames(estimates), 
                                      estimates, secs=secs, rmse_train=rmse_train, rmse_val=rmse_val))
     Tpoints = (ncol(dat.train)+1)/(length(manifestNames)+1)
@@ -652,6 +690,9 @@ evaluate = function(mod, dat.train, dat.val, manifestNames, mod_type, hyperparam
   return(res)
 }
 
+# FUNCTION TO PERFORM CROSS-VALIDATION FOR ONE PARTICULAR MODEL
+#   >> Input: Model specifics, training data and number of folds for the CV
+#   >> Output: Matrix with details about the results of the model (incl. parameter estimates, computation time, training accuracy and test accuracy)
 cv = function(mod, dat, manifestNames, mod_type, hyperparams=list(), k=NULL) {
   
   set.seed(42)
@@ -671,28 +712,37 @@ cv = function(mod, dat, manifestNames, mod_type, hyperparams=list(), k=NULL) {
     res_fold = evaluate(mod, dat.train, dat.val, manifestNames, mod_type, hyperparams=hyperparams)
     res_fold['fold'] = fold
     res = rbind.fill(res, res_fold)
-    print(res_fold)
   }
   
   return(res)
 }
 
+# UNIVERSIAL FUNCTION TO MANAGE ALL KIND OF MODEL FITS FOR DIFFERENT USE CASES
+#  - Use case 1: Cross validation (if parameter k is set)
+#  - Use case 2: Ordinary validation (split training data into train and validation sets for unbiased performance estimate)
+#  - Use case 3: Fit on complete training set and evaluation on test data
+#  - Use case 4: Parameter estimation on full dataset without any unbiased performance measures
+#   >> Input: Model specifics, training data and number of folds for the CV
+#   >> Output: Matrix with details about the results of the model (incl. parameter estimates, computation time, training accuracy and test accuracy)
 modEval = function(dat.trainVal, manifestNames, mod_type, hyperparams=list(), k=NULL, val_size=NULL, dat.test=NULL, final_fit=FALSE) {
   
-  # Build model
-  Tpoints = ceiling(ncol(dat.trainVal)/(length(manifestNames)+1))
-  mod = build(dat.trainVal, manifestNames, Tpoints, mod_type, hyperparams)
+  # Build model (Only exception: The voelkle model is built as part of the fit 
+  # step, because it requires starting values that are obtained from a discrete 
+  # time model that uses the relevant training data)
+  if(mod_type != 'voelkle') {
+    mod = build(dat.trainVal, manifestNames, mod_type, hyperparams)
+  }
   
   res = data.frame() 
   
-  # Cross validation, if requested through parameter k
+  # Use case 1: Cross validation (if parameter k is set)
   if(!is.null(k)) { 
     res_cv = cv(mod, dat.trainVal, manifestNames, mod_type, hyperparams, k=k)
     res_cv['data_train'] = 'train'
     res = rbind.fill(res, res_cv)
   }
   
-  # Ordinary performance evaluation, if no cross validation, but specified val_size
+  # Use case 2: Ordinary validation (split training data into train and validation sets for unbiased performance estimate)
   else if(!is.null(val_size)) {
     dat.subsets = trainTestSplit(dat.trainVal, val_size)
     dat.train = dat.subsets['train']
@@ -703,14 +753,14 @@ modEval = function(dat.trainVal, manifestNames, mod_type, hyperparams=list(), k=
     res = rbind.fill(res, res_test)
   }
   
-  # Evaluate performance on test data using training and validation data combined
+  # Use case 3: Fit on complete training set and evaluation on test data
   else if(!is.null(dat.test)) {
     res_test = evaluate(mod, dat.trainVal, dat.test, manifestNames, mod_type, hyperparams)
     res_test['data_train'] = 'trainVal'
     res = rbind.fill(res, res_test)
   }
   
-  # Final fit with complete dataset
+  # Use case 4: Parameter estimation on full dataset without any unbiased performance measures
   if(final_fit || (is.null(k) & is.null(val_size) & is.null(dat.test))) {
     res_final = evaluate(mod, dat.trainVal, NULL, manifestNames, mod_type, hyperparams)
     res_final['data_train'] = 'trainValTest'
@@ -720,7 +770,10 @@ modEval = function(dat.trainVal, manifestNames, mod_type, hyperparams=list(), k=
   return(res)
 }
 
-modComp = function(models, dat.trainVal, manifestNames, mode='normal', k=NULL, val_size=NULL, data.test=NULL) {
+# ORGANIZE COMPARISONS OF DIFFERENT MODELS
+#   >> Input: List of models, training data, test data and  model evaluation specifics (e.g. k for CV; val_size for normal validation) 
+#   >> Output: Matrix with details about the results of the model (incl. parameter estimates, computation time, training accuracy and test accuracy)
+modComp = function(models, dat.trainVal, manifestNames, k=NULL, val_size=NULL, data.test=NULL) {
   
   # Deactivate linear model if Tpoints > 2
   if(ncol(dat.trainVal) != ((length(manifestNames)+1)*2)-1) { models = models[names(models)!='lm'] }
@@ -739,6 +792,9 @@ modComp = function(models, dat.trainVal, manifestNames, mode='normal', k=NULL, v
   return(res)
 }
 
+# SPLIT DATA INTO TRAINING AND TEST DATA
+#   >> Input: Dataset and size for the test set (value between 0 and 1)
+#   >> Output: Dictionary with training and test set
 trainTestSplit = function(dat, test_size) {
   
   set.seed(42)
@@ -749,6 +805,8 @@ trainTestSplit = function(dat, test_size) {
   return(list(train=dat.train, test=dat.test))
 }
 
+# FUNCTION TO PRINT THE RESULTS OF A MODEL IN A COMPREHENSIVE WAY
+#   >> Input: results matrix, column for the sorting, and type of parameters (either 'disc' or 'cont' or c('disc', 'cont'))
 printRes = function(res, paramType='disc', sortby='rmse_val') {
 
   res = res[res$paramType==paramType,]
@@ -766,6 +824,8 @@ printRes = function(res, paramType='disc', sortby='rmse_val') {
   print(res.agg[order(res.agg$target, res.agg[sortby]),])
 }
 
+# FUNCTION TO SAVE THE RESULTS LOCALLY IN .CSV FILES
+#   >> Input: list of results to be saved (or NULL to store all)
 writeRes = function(resNames=NULL) {
   if(is.null(resNames)) { resNames=ls(envir=.GlobalEnv, pat='res') }
   for(resName in resNames) {
@@ -773,6 +833,8 @@ writeRes = function(resNames=NULL) {
   }
 }
 
+# FUNCTION TO LOAD PREVIOUSLY COMPUTED RESULTS FROM THE DISK
+#   >> Input: list of results to be saved (or NULL to load all)
 readRes = function(resNames=NULL) {
   if(is.null(resNames)) { resNames=sub('.csv', '', list.files(path='../../results/', pattern='res')) }
   for(resName in resNames) {
@@ -784,13 +846,16 @@ readRes = function(resNames=NULL) {
 
 
 
-#--- PART 1: PREDICTION ACCURACY ACROSS MODELS --------------------------------------------------------------------------------------------------------------------#
+################################################################################
+###  PART 1: PREDICTION ACCURACY ACROSS MODELS
+################################################################################
+
 
 models = list(naive             = list(type='naive'),
               lm                = list(type='lm'),
               voelkle           = list(type='voelkle',  approx='precise'),
-              ctsem             = list(type='omx', cint='free', manifestmeans='zero', traitvar=NULL),
-              simple            = list(type='simple',   missing='fiml'),
+              ctsem             = list(type='ctsem', cint='free', manifestmeans='zero', traitvar=NULL),
+              autoregressive    = list(type='autoregressive',   missing='fiml'),
               discrete_listwise = list(type='discrete', missing='listwise'),
               discrete_fiml     = list(type='discrete', missing='fiml'))
 
@@ -806,18 +871,23 @@ manifestNames=c('attAnx', 'attAvd')
 res3a = modComp(models, dat.trainVal=prepData(data.pairfam, manifestNames, keepOnlyWaves=c(1,3), exclNANs=TRUE), manifestNames=manifestNames, k=5)
 res3b = modComp(models, dat.trainVal=prepData(data.pairfam, manifestNames, keepOnlyWaves=c(1,5,7,9,11)), manifestNames=manifestNames, k=5)
 
-
 manifestNames=c('sat6', 'per1i6', 'attAnx', 'attAvd')
 res4 = modComp(models, dat.trainVal=prepData(data.pairfam, manifestNames, keepOnlyWaves=c(1,5,7,9,11)), manifestNames=manifestNames, k=5)
 
 writeRes()
-readRes()
-printRes(res3a)
 
 
 
-#--- PART 2: COMPUTATIONAL COMPLEXITY OF THE MODELS --------------------------------------------------------------------------------------------------------------------#
 
+
+################################################################################
+###  PART 2: COMPUTATIONAL COMPLEXITY OF MODELS
+################################################################################
+
+
+# FUNCTION TO EVALUATE COMPUTATION TIME FOR DIFFERENT HYPERPARAMETER INSTANCES
+#   >> Input: list of different hyperparameter combinations, list of models and training data
+#   >> Output: matrix with computation time for the different hyperparameter combinations and models
 performance_test = function(hps, models, data) {
   res = data.frame()
   for (hp in hps) {
@@ -830,7 +900,7 @@ performance_test = function(hps, models, data) {
         for (model in names(models)) {
           start_time = Sys.time()
           for (i in c(1:hp$iterations)) {
-            mod = build(dat.d, hp$manifestNames, Tpoints, models[[model]]['type'], models[[model]])
+            mod = build(dat.d, hp$manifestNames, models[[model]]['type'], models[[model]])
             fit(mod, dat.d, hp$manifestNames, models[[model]]['type'], models[[model]])
           }
           end_time = Sys.time()
@@ -847,7 +917,7 @@ performance_test = function(hps, models, data) {
 # Experiment 1: Varying sample size for a simple model and for a complex model
 models = list(discrete = list(type='discrete', missing='fiml'),
               voelkle  = list(type='voelkle',  approx='precise', retryattempts=0),
-              ctsem    = list(type='omx', cint='free', manifestmeans='zero', traitvar=NULL, retryattempts=0))
+              ctsem    = list(type='ctsem', cint='free', manifestmeans='zero', traitvar=NULL, retryattempts=0))
 hyperparams = list(a = list(manifestNames=c('sat6', 'attAnx'), 
                        waves=c(1,3),
                        N = c(5032),
@@ -860,7 +930,7 @@ res5
 # Experiment 2: Varying number of time points
 models = list(discrete = list(type='discrete', missing='fiml'),
               voelkle  = list(type='voelkle',  approx='precise', retryattempts=10),
-              ctsem    = list(type='omx', cint='free', manifestmeans='zero', traitvar=NULL, retryattempts=10))
+              ctsem    = list(type='ctsem', cint='free', manifestmeans='zero', traitvar=NULL, retryattempts=10))
 hyperparams = list(a = list(manifestNames=c('sat6', 'attAnx'), 
                             waves=c(1,3),
                             N = c(1000),
@@ -892,7 +962,7 @@ res6
 # Experiment 3: Varying number of parameters
 models = list(discrete = list(type='discrete', missing='fiml'),
               voelkle  = list(type='voelkle',  approx='precise', retryattempts=10),
-              ctsem    = list(type='omx', cint='free', manifestmeans='zero', traitvar=NULL, retryattempts=10))
+              ctsem    = list(type='ctsem', cint='free', manifestmeans='zero', traitvar=NULL, retryattempts=10))
 hyperparams = list(a = list(manifestNames=c('sat6', 'attAnx'), 
                             waves=c(1,5),
                             N = c(1964),
@@ -921,13 +991,21 @@ hyperparams = list(a = list(manifestNames=c('sat6', 'attAnx'),
 res7 = performance_test(hyperparams, models, data.pairfam)
 res7
 
+writeRes()
 
 
 
-#--- PART 3: COMPARABILITY OF PARAMETERS ACROSS INTERVALS --------------------------------------------------------------------------------------------------------------------#
+
+
+################################################################################
+###  PART 3: COMPARABILITY OF PARAMETERS ACROSS INTERVALS
+################################################################################
+
 
 models = list(voelkle       = list(type='voelkle',  approx='precise'),
               discrete_fiml = list(type='discrete', missing='fiml'))
+
+manifestNames=c('sat6', 'attAnx')
 
 # Generate a list with all possible combinations of waves
 wave_instances = list()
@@ -953,28 +1031,34 @@ for (i in seq(from=1, to=11, by=2)) {
     j=j+2
   }
 }
-manifestNames=c('sat6', 'attAnx')
-res8a=data.frame()
+
+res8=data.frame()
 for(waves in wave_instances) {
   res = modComp(models, dat.trainVal=prepData(data.pairfam, manifestNames, keepOnlyWaves=waves), manifestNames=manifestNames)
   res['waves']=paste(unlist(waves), collapse=', ')
-  res8a = rbind(res8a, res)
+  res8 = rbind(res8, res)
 }
-res8a[res8a['paramType']=='disc',]
+res8[res8['paramType']=='disc',]
 
 writeRes()
 
 
 
-#--- PART 4: EXAMINATION OF PSYCHOLOGICAL HYPOTHESES --------------------------------------------------------------------------------------------------------------------#
+
+
+################################################################################
+###  PART 3: EXAMINATION OF PSYCHOLOGICAL HYPOTHESES
+################################################################################
+
 
 models = list(naive             = list(type='naive'),
               voelkle           = list(type='voelkle',  approx='precise'),
-              ctsem             = list(type='omx', cint='free', manifestmeans='zero', traitvar=NULL),
-              autoregressive    = list(type='simple',   missing='fiml'),
+              ctsem             = list(type='ctsem', cint='free', manifestmeans='zero', traitvar=NULL),
+              autoregressive    = list(type='autoregressive',   missing='fiml'),
               discrete_fiml     = list(type='discrete', missing='fiml'))
 
 manifestNames=c('sat6', 'per1i6', 'attAnx', 'attAvd', 'pattAnx', 'pattAvd') # All variables considered now
+
 
 # Create 80%/20% split for male subjects
 dat9.m = prepData(data.pairfam, manifestNames, genders=1)
@@ -993,8 +1077,6 @@ dat9.test = rbind(dat9.m.test, dat9.f.test)
 
 # Test what model works best for that particular use case
 res9a = modComp(models, dat9.trainVal, manifestNames, k=5)
-res9a2 = modComp(models, dat9.trainVal, manifestNames, k=5)
-res9a3 = modComp(models, dat9.trainVal, manifestNames, k=5)
 
 # Evaluate prediction accuracy for chosen models
 best_model = models$ctsem
@@ -1003,16 +1085,4 @@ res9b = modEval(dat9.trainVal, manifestNames, mod_type=best_model$type, hyperpar
 # Obtain final results
 res9c = modEval(dat9, manifestNames, mod_type=best_model$type, hyperparams=best_model, final_fit=TRUE)
 
-# Analyze results separately for both genders
-res9b.m2 = modEval(dat9.m, manifestNames, mod_type=best_model$type, hyperparams=best_model, dat.test=dat9.m.test)
-res9b.f = modEval(dat9.f.trainVal, manifestNames, mod_type=best_model$type, hyperparams=best_model, dat.test=dat9.f.test)
-
-
-i=2
-drift = as.matrix(res9b[res9b$paramType=='cont',c(manifestNames)])
-startVals = c(0,0,-1,-1,-1,-1)
-expm(drift*i) %*% startVals
-
-
 writeRes()
-
